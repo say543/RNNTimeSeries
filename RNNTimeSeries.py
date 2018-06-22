@@ -9,6 +9,11 @@ from collections import UserDict
 
 from TimeSeriesTensor import TimeSeriesTensor
 
+# Using TensorFlow backend.
+from keras.models import Model, Sequential
+from keras.layers import GRU, Dense, RepeatVector, TimeDistributed, Flatten, Input
+from keras.callbacks import EarlyStopping
+
 # http://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.MinMaxScaler.html
 # http://scikit-learn.org/stable/install.html
 from sklearn.preprocessing import MinMaxScaler
@@ -112,4 +117,20 @@ if __name__ == "__main__":
 
     train_inputs = TimeSeriesTensor(train, 'load', HORIZON, tensor_structure)
     print (train_inputs.dataframe.head())
+
+
+    # extra data as valid inputs i guess
+    look_back_dt = dt.datetime.strptime(valid_start_dt, '%Y-%m-%d %H:%M:%S') - dt.timedelta(hours=T-1)
+    valid = energy.copy()[(energy.index >=look_back_dt) & (energy.index < test_start_dt)][['load']]
+    valid[['load']] = X_scaler.transform(valid)
+    valid_inputs = TimeSeriesTensor(valid, 'load', HORIZON, tensor_structure)
+
+
+    # parameter
+    BATCH_SIZE = 32
+    LATENT_DIM = 5
+    EPOCHS = 50
+
+    # define training encoder
+
 
