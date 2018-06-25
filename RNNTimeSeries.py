@@ -10,6 +10,7 @@ from collections import UserDict
 from TimeSeriesTensor import TimeSeriesTensor
 
 # Using TensorFlow backend.
+# so need to pip install tensorflow
 from keras.models import Model, Sequential
 from keras.layers import GRU, Dense, RepeatVector, TimeDistributed, Flatten, Input
 from keras.callbacks import EarlyStopping
@@ -132,5 +133,50 @@ if __name__ == "__main__":
     EPOCHS = 50
 
     # define training encoder
+    # really different from lecture's example
+    # https://keras.io/getting-started/sequential-model-guide/#specifying-the-input-shape
+    # specify input with None
+    encoder_input = Input(shape=(None, 1))
+    # using GUR is differnt from RNN
+    # https://keras.io/layers/recurrent/
+    # return_state: Boolean. Whether to return the last state in addition to the output.
+    encoder = GRU(LATENT_DIM, return_state=True)
+    # proviate input and extra state different from output
+    encoder_output, state_h = encoder(encoder_input)
+    # ? how does this line work ? it looks like accessing dictionary by key
+    # https://openhome.cc/Gossip/CodeData/PythonTutorial/ContainerFlowComprehensionPy3.html
+    # it should be initial as list dadastrucutre i guees 
+    # this will output an object
+    print (state_h)
+    encoder_states = [state_h]
+    print (encoder_states)
+
+
+    # define training decoder
+    decoder_input = Input(shape=(None, 1))
+    # ? why setup return sequences at the first layer, i thought it should be the first layer 
+    # ? why latent_dim is 6 . i think it should be 3
+    decoder_GRU = GRU(LATENT_DIM, return_state=True, return_sequences=True)
+    # ise _ to get output states
+    decoder_output, _ = decoder_GRU(decoder_input, initial_state=encoder_states)
+
+
+    # https://keras.io/getting-started/functional-api-guide/#all-models-are-callable-just-like-layers
+    # https://keras.io/layers/wrappers/
+    # https://blog.csdn.net/u012193416/article/details/79477220
+    # https://machinelearningmastery.com/timedistributed-layer-for-long-short-term-memory-networks-in-python/
+    # ? not very understand
+    # constraint output dimentions
+    decoder_dense = TimeDistributed(Dense(1))
+    decoder_output = decoder_dense(decoder_output)
+
+
+    # also GRU
+    # ? not do sequentail and model add here
+    # ? why gp on thos way
+    model = Model([encoder_input, decoder_input], decoder_output)
+
+
+
 
 
