@@ -120,14 +120,16 @@ if __name__ == "__main__":
     print (train_inputs.dataframe.head())
 
 
+
     # extra data as valid inputs i guess
     look_back_dt = dt.datetime.strptime(valid_start_dt, '%Y-%m-%d %H:%M:%S') - dt.timedelta(hours=T-1)
     valid = energy.copy()[(energy.index >=look_back_dt) & (energy.index < test_start_dt)][['load']]
     valid[['load']] = X_scaler.transform(valid)
     valid_inputs = TimeSeriesTensor(valid, 'load', HORIZON, tensor_structure)
-
+    print (valid_inputs.dataframe.head())
 
     # parameter
+    #  not sure how this gets seup, might be by hyper parameter tune up
     BATCH_SIZE = 32
     LATENT_DIM = 5
     EPOCHS = 50
@@ -154,8 +156,10 @@ if __name__ == "__main__":
 
     # define training decoder
     decoder_input = Input(shape=(None, 1))
-    # ? why setup return sequences at the first layer, i thought it should be the first layer 
-    # ? why latent_dim is 6 . i think it should be 3
+    # why setup return sequences ture at the second layer?
+    # yes, based on coding it does make sense
+    # why latent_dim is 6 . i think it should be 3
+    # latent_dim is the dimention of GUR , notinput
     decoder_GRU = GRU(LATENT_DIM, return_state=True, return_sequences=True)
     # ise _ to get output states
     decoder_output, _ = decoder_GRU(decoder_input, initial_state=encoder_states)
@@ -165,18 +169,67 @@ if __name__ == "__main__":
     # https://keras.io/layers/wrappers/
     # https://blog.csdn.net/u012193416/article/details/79477220
     # https://machinelearningmastery.com/timedistributed-layer-for-long-short-term-memory-networks-in-python/
-    # ? not very understand
-    # constraint output dimentions
+    # ? not very understand about syntax 
+    # ? might be following lecture 4 to recode it better
     decoder_dense = TimeDistributed(Dense(1))
     decoder_output = decoder_dense(decoder_output)
 
 
     # also GRU
     # ? not do sequentail and model add here
-    # ? why gp on thos way
+    # ? why go on thos way
+    # basically same as model add as lecture 4
+    # https://github.com/say543/RNNForTimeSeriesForecastTutorial/blob/master/4_multi_step_encoder_decoder_simple.ipynb
     model = Model([encoder_input, decoder_input], decoder_output)
 
 
+    # optimization function
+    # https://github.com/say543/RNNForTimeSeriesForecastTutorial/blob/master/slides/RNN%20For%20Time%20Series%20Forecasting%20Tutorial.pdf
+    # mse : Mean-squared-error
+    # how to select optimization ?
+    # i used to learn that is it provided by Maximal likelihood optimization
+    # https://keras.io/getting-started/sequential-model-guide/#compilation
+    # having adagrad, studying in th future
+    model.compile(optimizer='RMSprop', loss='mse')
+
+    # output model
+    # i borrow from 
+    # https://github.com/say543/RNNForTimeSeriesForecastTutorial/blob/master/4_multi_step_encoder_decoder_simple.ipynb
+    # ? not sure how to read it
+    # https://keras.io/models/about-keras-models/#about-keras-models
+    model.summary()
+
+
+    # introducing early stop
+    # ? why need to have early stop
+    earlystop = EarlyStopping(monitor='val_loss', min_delta=0, patience=5)
+
+    # get label data for train data and valid data
+    # no user dictionary so change it 
+    train_target = train_inputs['target'].reshape(train_inputs['target'].shape[0], train_inputs['target'].shape[1], 1)
+    valid_target = valid_inputs['target'].reshape(valid_inputs['target'].shape[0], valid_inputs['target'].shape[1], 1)
+    #train_target = train_inputs.dataframe.target.reshape(train_inputs.dataframe.target.shape[0], train_inputs.dataframe.target.shape[1], 1)
+    #valid_target = valid_inputs.dataframe.target.reshape(valid_inputs.dataframe.target.shape[0], valid_inputs.dataframe.target.shape[1], 1)
+
+
+    # train
+    # why needs to have both decoder inpput and encoder input as inputs
+    # ? i think having decoder input is good enough
+    # no user dictionary so change it 
+    model.fit([train_inputs['encoder_input'], train_inputs['decoder_input']],
+          train_target,
+          batch_size=BATCH_SIZE,
+          epochs=EPOCHS,
+          validation_data=([valid_inputs['encoder_input'], valid_inputs['decoder_input']], valid_target),
+          callbacks=[earlystop],
+          verbose=1)
+    #model.fit([train_inputs.dataframe.encoder_input, train_inputs.dataframe.decoder_input],
+    #      train_target,
+    #      batch_size=BATCH_SIZE,
+    #      epochs=EPOCHS,
+    #      validation_data=([valid_inputs.dataframe.encoder_input, valid_inputs.dataframe.decoder_input], valid_target),
+    #      callbacks=[earlystop],
+    #      verbose=1)
 
 
 

@@ -3,11 +3,18 @@
 import numpy as np
 import pandas as pd
 
+#from collections.abc import Mapping
+# https://docs.python.org/3/library/collections.html#collections.UserDict
+from collections import UserDict
+
 # this is for class inheritated
 # cannot find userDict so comment it 
 # https://stackoverflow.com/questions/1392396/advantages-of-userdict-class-in-python
-#class TimeSeriesTensor(UserDict):
-class TimeSeriesTensor(dict):
+# http://www.kr41.net/2016/03-23-dont_inherit_python_builtin_dict_type.html
+class TimeSeriesTensor(UserDict):
+#class TimeSeriesTensor(dict):
+#class TimeSeriesTensor(Mapping):
+
     
     # A dictionary of tensors for input into the RNN model
     
@@ -37,6 +44,16 @@ class TimeSeriesTensor(dict):
         self.dataframe = self._shift_data(H, freq, drop_incomplete)
         self.data = self._df2tensors(self.dataframe)
     
+    # for support Mapping glass
+    '''
+    # http://www.kr41.net/2016/03-23-dont_inherit_python_builtin_dict_type.html
+    def __getitem__(self, key):
+        return self.dataframe[key]
+    def __iter__(self):
+        return iter(self.dataframe)    # ``ghost`` is invisible
+    def __len__(self):
+        return len(self.dataframe)
+    '''
     
     def _shift_data(self, H, freq, drop_incomplete):
         
