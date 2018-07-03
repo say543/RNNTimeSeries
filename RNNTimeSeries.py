@@ -68,6 +68,33 @@ def create_evaluation_df(predictions, test_inputs, H, scaler):
 
 
 
+# Define the funtion to make single sequence prediction 
+# based on scoring encoder-decoder
+def predict_single_sequence(single_input_seq, horizon, n_features, encoder_model, decoder_model):
+    # apply encoder model to the input_seq to get state
+    states_value = encoder_model.predict(single_input_seq)
+    
+    # get input for decoder's first time step (which is encoder input at time t)
+    dec_input = np.zeros((1, 1, n_features))
+    dec_input[0, 0, 0] = single_input_seq[0, -1, :]
+    
+    # create final output placeholder
+    output = list()
+    # collect predictions
+    for t in range(horizon):
+        # predict next value
+        yhat, h = decoder_model.predict([dec_input] + [states_value])
+        # store prediction
+        output.append(yhat[0,0,:])
+        # update state
+        state = [h]
+        # update decoder input to be used as input for next prediction
+        dec_input[0, 0, 0] = yhat
+        
+    return np.array(output)
+
+
+
 if __name__ == "__main__":
 
     # step 1:
@@ -137,7 +164,9 @@ if __name__ == "__main__":
     # define training encoder
     # really different from lecture's example
     # https://keras.io/getting-started/sequential-model-guide/#specifying-the-input-shape
-    # specify input with None
+    # specify input with None None indicates that any positive integer may be expected).
+    #  ? encoder input is a tuple
+    # (seqence_length , input kength)
     encoder_input = Input(shape=(None, 1))
     # using GUR is differnt from RNN
     # https://keras.io/layers/recurrent/
@@ -162,6 +191,8 @@ if __name__ == "__main__":
     # latent_dim is the dimention of GUR , notinput
     decoder_GRU = GRU(LATENT_DIM, return_state=True, return_sequences=True)
     # ise _ to get output states
+    # https://keras.io/layers/recurrent/
+    # initial_state should be a list of tensors
     decoder_output, _ = decoder_GRU(decoder_input, initial_state=encoder_states)
 
 
@@ -177,9 +208,15 @@ if __name__ == "__main__":
 
     # also GRU
     # ? not do sequentail and model add here
-    # ? why go on thos way
-    # basically same as model add as lecture 4
+    # ? why go on thos way, why not basically going same as model add as lecture 4
     # https://github.com/say543/RNNForTimeSeriesForecastTutorial/blob/master/4_multi_step_encoder_decoder_simple.ipynb
+
+    # model class API
+    # https://keras.io/models/model/#model-class-api
+    # https://keras.io/getting-started/functional-api-guide/
+    # here using  multiple input, sinlge output (providing output is for dense)
+    # Note that by calling a model you aren't just reusing the architecture of the model, you are also reusing its weights.
+    # [] should be forming a list
     model = Model([encoder_input, decoder_input], decoder_output)
 
 
@@ -208,8 +245,6 @@ if __name__ == "__main__":
     # no user dictionary so change it 
     train_target = train_inputs['target'].reshape(train_inputs['target'].shape[0], train_inputs['target'].shape[1], 1)
     valid_target = valid_inputs['target'].reshape(valid_inputs['target'].shape[0], valid_inputs['target'].shape[1], 1)
-    #train_target = train_inputs.dataframe.target.reshape(train_inputs.dataframe.target.shape[0], train_inputs.dataframe.target.shape[1], 1)
-    #valid_target = valid_inputs.dataframe.target.reshape(valid_inputs.dataframe.target.shape[0], valid_inputs.dataframe.target.shape[1], 1)
 
 
     # train
@@ -230,6 +265,47 @@ if __name__ == "__main__":
     #      validation_data=([valid_inputs.dataframe.encoder_input, valid_inputs.dataframe.decoder_input], valid_target),
     #      callbacks=[earlystop],
     #      verbose=1)
+
+
+
+    # implement inference model
+    # ? not sure why this is different from training model, should it use previous model to do
+
+    # build ingerence encoder model
+    # ? why using encoder input / encoder states again
+    # encoder_input seems only providng dimention
+    # ? how about encoder_states, is it output from training output for reuse or just dimention
+
+    # for debug 
+    # cannot tell from output, only know they are two objects
+    # https://keras.io/layers/recurrent/
+    # initial_state should be a list of tensors
+    ## print(encoder_input)
+    ## print(encoder_states)
+
+    # https://keras.io/layers/recurrent/
+    # initial_state should be a list of tensors
+    encoder_model = Model(encoder_input, encoder_states)
+
+    # build ingerence decoder model
+    decoder_state_input_h = Input(shape=(LATENT_DIM,))
+    # form a list since initial_state needs a list
+    decoder_states_input = [decoder_state_input_h]
+
+    # reuse decoder_GRU's archutecture 
+    decoder_output, state_h = decoder_GRU(decoder_input, initial_state=decoder_states_input)
+    decoder_states = [state_h]
+    decoder_output = decoder_dense(decoder_output)
+
+    # ? why adding here, do not understand  also using +
+    decoder_model = Model([decoder_input] + decoder_states_input, [decoder_output] + decoder_states)
+
+    # example of single sequence prediction
+    #  predict_single_sequence will use encoder_model as global parameter
+    #  so passing it 
+    #print(predict_single_sequence(valid_inputs['encoder_input'][0:1], HORIZON, 1))
+    print(predict_single_sequence(valid_inputs['encoder_input'][0:1], HORIZON, 1, encoder_model, decoder_model))
+
 
 
 
