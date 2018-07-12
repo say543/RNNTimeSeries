@@ -75,10 +75,67 @@ def predict_single_sequence(single_input_seq, horizon, n_features, encoder_model
     states_value = encoder_model.predict(single_input_seq)
     
     # get input for decoder's first time step (which is encoder input at time t)
+    # https://docs.scipy.org/doc/numpy/reference/generated/numpy.zeros.html
     dec_input = np.zeros((1, 1, n_features))
+
+    # https://stackoverflow.com/questions/15535205/what-does-1-mean-do-in-python
+    # https://www.digitalocean.com/community/tutorials/how-to-index-and-slice-strings-in-python-3
+    # normal
+    # proper_slice ::=  [lower_bound] ":" [upper_bound] [ ":" [stride] ]
+    # [:5]
+    # output 0 to 5(excluding)
+    # [-3]
+    # reverse index is minus and it starts with -1 -2 -3...
+    # -3 is to output the character with index = -3
+    # [-4:-1]
+    # output character with index = -4 to index = -1
+    # [::-1]
+    # stride = -1, output total string reversely
+    # [::-2]
+    # stride = -2
+
+    # [:-1] 
+    # upper bound = -1, so remove the last charaacter
+    # [-1:]
+    # low bound = -1, 
+    # output the last character, same as [-1]
+    # [-1:1:-1]
+    # reverse string
+    #  index -1 to index 1(excluding)
+    # ex: input = 'abcedfg'
+    # cedfg
+    # string is reverse output becaasue striide is -1
+    # so output 'gfedc'
+    # [:]
+    # means nothing constraint
+    # just output original string
+
+
+    # https://www.zhihu.com/question/22686450
+    # https://stackoverflow.com/questions/11367902/negative-list-index/11367936
+    # ?more examples
+    # ? not fully understand
+
+    # https://stackoverflow.com/questions/31061625/accessing-slice-of-3d-numpy-array
+    # python slice
+    
+    # for debug
+    # this is the first row for encoding input data
+    #print (single_input_seq)
+
+
+    # access the kast element of the vector
+    # why starting from the last one
+    # it is becasue this is time T
     dec_input[0, 0, 0] = single_input_seq[0, -1, :]
+
+
+    # for debug
+    #print (dec_input[0, 0, 0])
     
     # create final output placeholder
+    # ? only one elements in single_input_seq is used to predict three outputs for three timestamps
+    # becasue the previous output will be used as next time input 
     output = list()
     # collect predictions
     for t in range(horizon):
@@ -93,6 +150,20 @@ def predict_single_sequence(single_input_seq, horizon, n_features, encoder_model
         
     return np.array(output)
 
+# Define the funtion to make multiple sequence prediction 
+# based on scoring encoder-decoder
+def predict_multi_sequence(input_seq_multi, horizon, n_features):
+    # create output placeholder
+    predictions_all = list()
+    for seq_index in range(input_seq_multi.shape[0]):       
+        # Take one sequence for decoding
+        input_seq = input_seq_multi[seq_index: seq_index + 1]
+        # Generate prediction for the single sequence
+        predictions = predict_single_sequence(input_seq, horizon, n_features)
+        # store all the sequence prediction
+        predictions_all.append(predictions)
+        
+    return np.array(predictions_all)
 
 
 if __name__ == "__main__":
@@ -120,9 +191,15 @@ if __name__ == "__main__":
     # Scale data to be in range (0, 1). This transformation should be calibrated on the training set only.
     # normalization  only applies to training data. This is to prevent information from the validation or test sets leaking into the training data. 
     y_scaler = MinMaxScaler()
+    # Compute the minimum and maximum to be used for later scaling.
     y_scaler.fit(train[['load']])
 
     X_scaler = MinMaxScaler()
+    # fit to data and transform it
+    # http://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.MinMaxScaler.html
+    # ? accroding to exampke, why needs to have two scalers
+    # ? why traing data is using  0-1 to transform 
+    # ? but y_scaler is used for testing data by maximum and minimum
     train[['load']] = X_scaler.fit_transform(train)
 
 
@@ -153,6 +230,16 @@ if __name__ == "__main__":
     valid = energy.copy()[(energy.index >=look_back_dt) & (energy.index < test_start_dt)][['load']]
     valid[['load']] = X_scaler.transform(valid)
     valid_inputs = TimeSeriesTensor(valid, 'load', HORIZON, tensor_structure)
+
+    # for debug
+    # dictionary tyoe
+    # 'target'
+    # 'encoder_input'
+    # 'decoder_input'
+    # as key to access different data
+    print (valid_inputs)
+    
+
     print (valid_inputs.dataframe.head())
 
     # parameter
@@ -167,6 +254,7 @@ if __name__ == "__main__":
     # specify input with None None indicates that any positive integer may be expected).
     #  ? encoder input is a tuple
     # (seqence_length , input kength)
+    # ? no using  rolling feature of normal flow
     encoder_input = Input(shape=(None, 1))
     # using GUR is differnt from RNN
     # https://keras.io/layers/recurrent/
@@ -298,14 +386,38 @@ if __name__ == "__main__":
     decoder_output = decoder_dense(decoder_output)
 
     # ? why adding here, do not understand  also using +
+    # looks like list operation
+    # for debug
+    # it will be a list having two tensors as elements
+    # print ([decoder_input] + decoder_states_input)
+    # basically the same as this i guess ?
+    # ? wrong this will say unhashable list becasue decoder_states_input / decoder_states are list already
+    # decoder_model = Model([decoder_input, decoder_states_input], [decoder_output, decoder_states])
+    # so using list combine operation
+    # https://stackoverflow.com/questions/1720421/how-to-concatenate-two-lists-in-python
     decoder_model = Model([decoder_input] + decoder_states_input, [decoder_output] + decoder_states)
 
+
+    #################################################################
     # example of single sequence prediction
+    ##################################################################
     #  predict_single_sequence will use encoder_model as global parameter
     #  so passing it 
     #print(predict_single_sequence(valid_inputs['encoder_input'][0:1], HORIZON, 1))
+    # ? does 1 mean input size
     print(predict_single_sequence(valid_inputs['encoder_input'][0:1], HORIZON, 1, encoder_model, decoder_model))
 
+    #################################################################
+    # example of output sequence prediction
+    # using  single sequence prediction as a subroutine
+    ##################################################################
+    look_back_dt = dt.datetime.strptime(test_start_dt, '%Y-%m-%d %H:%M:%S') - dt.timedelta(hours=T-1)
+    # energy is a input file
+    test = energy.copy()[test_start_dt:][['load']]
+    # http://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.MinMaxScaler.html
 
+    # ? y_scaler search this code above. why it goes this way?
+    test[['load']] = y_scaler.transform(test)
+    test_inputs = TimeSeriesTensor(test, 'load', HORIZON, tensor_structure)
 
 
