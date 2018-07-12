@@ -27,7 +27,11 @@ from sklearn.preprocessing import MinMaxScaler
 # skip it at first
 # % %matplotlib inline
 
+
+#https://pandas.pydata.org/
+#https://pandas.pydata.org/pandas-docs/stable/options.html
 pd.options.display.float_format = '{:,.2f}'.format
+
 np.set_printoptions(precision=2)
 
 
@@ -39,6 +43,8 @@ def load_data():
 
     data_dir = 'data/'
 
+    # https://pandas.pydata.org/pandas-docs/stable/generated/pandas.read_csv.html?highlight=read_csv#pandas.read_csv
+    # read
     energy = pd.read_csv(os.path.join(data_dir, 'energy.csv'), parse_dates=['timestamp'])
 
     # Reindex the dataframe such that the dataframe has a record for every time point
@@ -46,6 +52,7 @@ def load_data():
     # identify missing time periods in the data (there are none in this dataset).
 
     energy.index = energy['timestamp']
+    # https://pandas.pydata.org/pandas-docs/stable/generated/pandas.date_range.html?highlight=date_range#pandas.date_range
     energy = energy.reindex(pd.date_range(min(energy['timestamp']),
                                           max(energy['timestamp']),
                                           freq='H'))
@@ -59,7 +66,12 @@ def mape(predictions, actuals):
 
 # create_evalatuion_df.py
 def create_evaluation_df(predictions, test_inputs, H, scaler):
+    # https://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html
     eval_df = pd.DataFrame(predictions, columns=['t+'+str(t) for t in range(1, H+1)])
+
+    # for debug
+    print (eval_df)
+
     eval_df['timestamp'] = test_inputs.dataframe.index
     eval_df = pd.melt(eval_df, id_vars='timestamp', value_name='prediction', var_name='h')
     eval_df['actual'] = np.transpose(test_inputs['target']).ravel()
@@ -152,14 +164,22 @@ def predict_single_sequence(single_input_seq, horizon, n_features, encoder_model
 
 # Define the funtion to make multiple sequence prediction 
 # based on scoring encoder-decoder
-def predict_multi_sequence(input_seq_multi, horizon, n_features):
+def predict_multi_sequence(input_seq_multi, horizon, n_features, encoder_model, decoder_model):
     # create output placeholder
     predictions_all = list()
+
+    # for debug
+    # print (input_seq_multi)
+
+    # why specifying [0] here ?
+    # https://stackoverflow.com/questions/10200268/what-does-shape-do-in-for-i-in-rangey-shape0
+    # it is to return the first dimention of a numpy array
+    # number of samples and each sample has t-5 t-4 t-3 t-2 t-1 t
     for seq_index in range(input_seq_multi.shape[0]):       
         # Take one sequence for decoding
         input_seq = input_seq_multi[seq_index: seq_index + 1]
         # Generate prediction for the single sequence
-        predictions = predict_single_sequence(input_seq, horizon, n_features)
+        predictions = predict_single_sequence(input_seq, horizon, n_features, encoder_model, decoder_model)
         # store all the sequence prediction
         predictions_all.append(predictions)
         
@@ -237,7 +257,7 @@ if __name__ == "__main__":
     # 'encoder_input'
     # 'decoder_input'
     # as key to access different data
-    print (valid_inputs)
+    #print (valid_inputs)
     
 
     print (valid_inputs.dataframe.head())
@@ -401,7 +421,7 @@ if __name__ == "__main__":
     #################################################################
     # example of single sequence prediction
     ##################################################################
-    #  predict_single_sequence will use encoder_model as global parameter
+    #  predict_single_sequence will use encoder_model / decoding_model as global parameter
     #  so passing it 
     #print(predict_single_sequence(valid_inputs['encoder_input'][0:1], HORIZON, 1))
     # ? does 1 mean input size
@@ -419,5 +439,59 @@ if __name__ == "__main__":
     # ? y_scaler search this code above. why it goes this way?
     test[['load']] = y_scaler.transform(test)
     test_inputs = TimeSeriesTensor(test, 'load', HORIZON, tensor_structure)
+
+
+    #  predict_single_sequence will use encoder_model / decoding_model as global parameter
+    #  so passing it 
+
+    # example of multiple sequence prediction based on validation data
+    test_predictions_all = predict_multi_sequence(test_inputs['encoder_input'], HORIZON, 1, encoder_model, decoder_model)
+    # output shape
+    # if should be
+    # number of encoder input samples,  [t+1, t+2, t+3]  , size of each t output
+    print(test_predictions_all.shape)
+
+
+    #reshape
+    # https://stackoverflow.com/questions/10200268/what-does-shape-do-in-for-i-in-rangey-shape0
+    # reshape 
+    # from number of encoder input samples,  [t+1, t+2, t+3]  , size of each t output
+    # to
+    # number of encoder input samples,  [t+1, t+2, t+3]
+    test_predictions_all_eval = test_predictions_all.reshape(test_predictions_all.shape[0], test_predictions_all.shape[1])
+    print(test_predictions_all_eval.shape)
+
+    # create a new table having prediction data and actual data together
+    eval_df = create_evaluation_df(test_predictions_all_eval, test_inputs, HORIZON, y_scaler)
+    print (eval_df.head())
+
+    # ? why needs to output mean
+    eval_df['APE'] = (eval_df['prediction'] - eval_df['actual']).abs() / eval_df['actual']
+    eval_df.groupby('h')['APE'].mean()
+
+
+    # calculate based on error funtion
+    print(mape(eval_df['prediction'], eval_df['actual']))
+
+
+    # plot output
+    plot_df = eval_df[(eval_df.timestamp<'2014-11-08') & (eval_df.h=='t+1')][['timestamp', 'actual']]
+    for t in range(1, HORIZON+1):
+        plot_df['t+'+str(t)] = eval_df[(eval_df.timestamp<'2014-11-08') & (eval_df.h=='t+'+str(t))]['prediction'].values
+
+    fig = plt.figure(figsize=(15, 8))
+    ax = plt.plot(plot_df['timestamp'], plot_df['actual'], color='red', linewidth=4.0)
+    ax = fig.add_subplot(111)
+    ax.plot(plot_df['timestamp'], plot_df['t+1'], color='blue', linewidth=4.0, alpha=0.75)
+    ax.plot(plot_df['timestamp'], plot_df['t+2'], color='blue', linewidth=3.0, alpha=0.5)
+    ax.plot(plot_df['timestamp'], plot_df['t+3'], color='blue', linewidth=2.0, alpha=0.25)
+    plt.xlabel('timestamp', fontsize=12)
+    plt.ylabel('load', fontsize=12)
+    ax.legend(loc='best')
+    plt.show()
+
+
+    
+
 
 
